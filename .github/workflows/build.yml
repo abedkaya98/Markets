@@ -1,0 +1,70 @@
+name: Build PWABuilder iOS IPA (Universal)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 1. فك ضغط أي ملف zip موجود تلقائياً ونقل محتوياته للرئيسي
+      - name: Extract ZIP File Automatically
+        run: |
+          ZIP_FILE=$(ls *.zip 2>/dev/null | head -n 1)
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Unzipping $ZIP_FILE..."
+            unzip -o "$ZIP_FILE"
+            if [ -d "src" ]; then
+              cp -r src/* .
+            fi
+          fi
+
+      # 2. تثبيت مكتبات CocoaPods إن وجدت
+      - name: Install CocoaPods Dependencies
+        run: |
+          if [ -f "Podfile" ]; then
+            pod install
+          fi
+
+      # 3. اكتشاف اسم المتجر تلقائياً وبناء الـ Archive
+      - name: Auto-Detect Project Name and Build
+        run: |
+          WORKSPACE_FILE=$(ls -d *.xcworkspace 2>/dev/null | head -n 1)
+          PROJECT_NAME=$(basename "$WORKSPACE_FILE" .xcworkspace)
+
+          echo "------------------------------------------"
+          echo "Detected Store Project: $PROJECT_NAME"
+          echo "------------------------------------------"
+
+          xcodebuild archive \
+            -workspace "$WORKSPACE_FILE" \
+            -scheme "$PROJECT_NAME" \
+            -sdk iphoneos \
+            -archivePath "build/$PROJECT_NAME.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+          echo "PROJECT_NAME=$PROJECT_NAME" >> $GITHUB_ENV
+
+      # 4. تحويل المشروع إلى ملف IPA
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -r "build/${PROJECT_NAME}.xcarchive/Products/Applications/"*.app Payload/
+          zip -r "${PROJECT_NAME}.ipa" Payload
+          echo "IPA_PATH=${PROJECT_NAME}.ipa" >> $GITHUB_ENV
+
+      # 5. رفع ملف الـ IPA الناتج للتحميل
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PROJECT_NAME }}-IPA
+          path: ${{ env.IPA_PATH }}
+          
