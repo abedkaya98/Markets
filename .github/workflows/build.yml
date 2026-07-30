@@ -32,39 +32,46 @@ jobs:
             pod install
           fi
 
-      # 3. اكتشاف اسم المتجر تلقائياً وبناء الـ Archive
+      # 3. اكتشاف اسم المتجر، تنظيف مسارات الملفات من العربي، وبناء الـ Archive
       - name: Auto-Detect Project Name and Build
         run: |
           WORKSPACE_FILE=$(ls -d *.xcworkspace 2>/dev/null | head -n 1)
-          PROJECT_NAME=$(basename "$WORKSPACE_FILE" .xcworkspace)
+          RAW_NAME=$(basename "$WORKSPACE_FILE" .xcworkspace)
+
+          # تحويل اسم المتجر لاسم آمن للمسارات والملفات
+          SAFE_NAME=$(echo "$RAW_NAME" | sed 's/[^a-zA-Z0-9_]/_/g' | sed 's/__*/_/g' | sed 's/^_//;s/_$//')
+          if [ -z "$SAFE_NAME" ]; then
+            SAFE_NAME="AppBuild"
+          fi
 
           echo "------------------------------------------"
-          echo "Detected Store Project: $PROJECT_NAME"
+          echo "Original Project Scheme: $RAW_NAME"
+          echo "Safe Artifact Name: $SAFE_NAME"
           echo "------------------------------------------"
 
           xcodebuild archive \
             -workspace "$WORKSPACE_FILE" \
-            -scheme "$PROJECT_NAME" \
+            -scheme "$RAW_NAME" \
             -sdk iphoneos \
-            -archivePath "build/$PROJECT_NAME.xcarchive" \
+            -archivePath "build/AppBuild.xcarchive" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
-          echo "PROJECT_NAME=$PROJECT_NAME" >> $GITHUB_ENV
+          echo "SAFE_NAME=$SAFE_NAME" >> $GITHUB_ENV
 
       # 4. تحويل المشروع إلى ملف IPA
       - name: Package IPA
         run: |
           mkdir -p Payload
-          cp -r "build/${PROJECT_NAME}.xcarchive/Products/Applications/"*.app Payload/
-          zip -r "${PROJECT_NAME}.ipa" Payload
-          echo "IPA_PATH=${PROJECT_NAME}.ipa" >> $GITHUB_ENV
+          cp -r "build/AppBuild.xcarchive/Products/Applications/"*.app Payload/
+          zip -r "${SAFE_NAME}.ipa" Payload
+          echo "IPA_PATH=${SAFE_NAME}.ipa" >> $GITHUB_ENV
 
       # 5. رفع ملف الـ IPA الناتج للتحميل
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PROJECT_NAME }}-IPA
+          name: ${{ env.SAFE_NAME }}-IPA
           path: ${{ env.IPA_PATH }}
           
